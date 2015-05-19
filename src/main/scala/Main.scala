@@ -2,51 +2,64 @@
  * Created by rilakkuma on 27/04/2015.
  */
 
+import akka.actor.ActorSystem
+import akka.stream.ActorFlowMaterializer
+import akka.stream.scaladsl._
+import com.mfglabs.stream.extensions.shapeless.ShapelessStream
+import org.scalatest._
+import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.time._
 import shapeless._
-import scala.pickling.Defaults._, scala.pickling.json._
 
-case class DomainPayload(field1: String, field2: List[String])
+object Main extends App with Matchers with ScalaFutures {
 
-sealed trait MessageBase
-case class Successful(blah: Map[Int, String]) extends MessageBase
-case class Failed(blah: String) extends MessageBase
+  implicit val as = ActorSystem()
+  implicit val fm = ActorFlowMaterializer()
+  implicit override val patienceConfig =
+    PatienceConfig(timeout = Span(5, Minutes), interval = Span(5, Millis))
 
-object Main extends App {
-//
-//  val a = Successful(Map((1 -> "5"), (2 -> "hello")))
-//  val aOnWire = a.pickle.value
-//
-//  val unpickledA = aOnWire.unpickle[MessageBase]
-//  // over the message bus
-//  process(unpickledA)
-//
-//
-//  val b = Failed("error!!!!!")
-//  val bOnWire = b.pickle.value
-//  // over the message bus
-//  val unpickledB = bOnWire.unpickle[MessageBase]
-//
-//  process(unpickledB)
-//
-//  def process(message: MessageBase) = message match {
-//    case Successful(blah) => println(blah)
-//    case Failed(blah) => println(blah)
-//  }
+  // 1 - Create a type alias for your coproduct
+  type C = Int :+: String :+: Boolean :+: CNil
 
+  // The sink to consume all output data
+  val sink = Sink.fold[Seq[C], C](Seq())(_ :+ _)
 
-  type PayloadIn[T] = T :: HNil
-  type PayloadOut[T] = Int :: Int :: T :: HNil
+  // 2 - a sample source wrapping incoming data in the Coproduct
+  val f = FlowGraph.closed(sink) { implicit builder => sink =>
+    import FlowGraph.Implicits._
+    val s = Source(() => Seq(
+      Coproduct[C](1),
+      Coproduct[C]("foo"),
+      Coproduct[C](2),
+      Coproduct[C](false),
+      Coproduct[C]("bar"),
+      Coproduct[C](3),
+      Coproduct[C](true)
+    ).toIterator)
 
-  val documentIn= DomainPayload("hello", "hello" :: "Hello" :: Nil) :: HNil
+    // 3 - our typed flows
+    val flowInt = Flow[Int].map{i => println("i:"+i); i}
+    val flowString = Flow[String].map{s => println("s:"+s); s}
+    val flowBool = Flow[Boolean].map{s => println("s:"+s); s}
 
-  val documentWithId = 10 :: 1 :: documentIn
+    // >>>>>> THE IMPORTANT THING
+    // 4 - build the coproductFlow in a 1-liner
+    val fr = builder.add(ShapelessStream.coproductFlow(flowInt :: flowString :: flowBool :: HNil))
+    // <<<<<< THE IMPORTANT THING
 
-
-  def process(blah: HList) = blah match {
-    case x: PayloadIn[_] => println("in")
-    case id: PayloadOut[_] => println("out")
+    // 5 - plug everything together using akkastream DSL
+    s ~> fr.inlet
+    fr.outlet ~> sink
   }
 
-  process(documentIn)
-  process(documentWithId)
+  // 6 - run it
+  f.run().futureValue.toSet should equal (Set(
+    Coproduct[C](1),
+    Coproduct[C]("foo"),
+    Coproduct[C](2),
+    Coproduct[C](false),
+    Coproduct[C]("bar"),
+    Coproduct[C](3),
+    Coproduct[C](true)
+  ))
 }
