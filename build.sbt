@@ -1,4 +1,4 @@
-name := "pickleTest"
+name := "akka-streams-experiment"
 
 version := "1.0"
 
