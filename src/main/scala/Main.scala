@@ -25,7 +25,8 @@ object Main extends App {
 
     //a sample source wrapping incoming data in the Coproduct[In]
     val s = Source(() => Seq(
-      Coproduct[In](Add.Add("hello"))
+      Coproduct[In](Add.Add("Hello")),
+      Coproduct[In](Add.Add("Junk"))
     ).toIterator)
 
 

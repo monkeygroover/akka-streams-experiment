@@ -1,7 +1,6 @@
 import Pipeline.Acceptor
 import akka.stream.scaladsl._
-import com.mfglabs.stream.extensions.shapeless.CoproductFlexiRoute
-import shapeless.{CNil, :+:, Coproduct}
+import shapeless.{:+:, CNil, Coproduct}
 
 /**
  * Created by rilakkuma on 21/05/2015.
@@ -22,21 +21,21 @@ package object Add {
 
   type Accept = Accepted :+: Rejected :+: CNil
 
-
   def addFlow() = Flow() { implicit builder =>
-    import FlowGraph.Implicits._
 
     val accept = builder.add(Acceptor((a:Add) => if (a.data != "Junk") Left(Accepted()) else Right(Rejected())))
-    val unzip = builder.add(new Unzip)
-
-    val bcast = builder.add(Broadcast[Rejected](2))
-    val merge = builder.add(Merge[Out](2))
 
     val fRejected = Flow[Rejected].map[Out]{a => Coproduct[Out](Rejected())}
     val fPerformed = Flow[Accepted].map[Out](a => Coproduct[Out](Success("yay")))
 
-    accept ~> fRejected ~> merge
-    //accept ~> fPerformed ~> merge
+    val merge = builder.add(Merge[Out](2))
+
+    builder.addEdge(accept.rejected, fRejected, merge.in(0))
+    builder.addEdge(accept.accepted, fPerformed, merge.in(1))
+
+//    import FlowGraph.Implicits._
+//    accept ~> fRejected ~> merge
+//    accept ~> fPerformed ~> merge
 
     (accept.in, merge.out)
   }
