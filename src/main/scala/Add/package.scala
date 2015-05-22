@@ -1,4 +1,4 @@
-import Pipeline.Acceptor
+import Pipeline.{Acceptor, Performer}
 import akka.stream.scaladsl._
 import shapeless.{:+:, CNil, Coproduct}
 
@@ -19,25 +19,31 @@ package object Add {
   // a coproduct of the valid outputs
   type Out = Accepted :+: Success :+: Rejected :+: CNil
 
-  type Accept = Accepted :+: Rejected :+: CNil
+  // internal flow events
+  case class Perform()
 
   def addFlow() = Flow() { implicit builder =>
 
-    val accept = builder.add(Acceptor((a:Add) => if (a.data != "Junk") Left(Accepted()) else Right(Rejected())))
+    val acceptor = builder.add(Acceptor((a:Add) => if (a.data != "Junk") Left(Perform()) else Right(Rejected())))
 
-    val fRejected = Flow[Rejected].map[Out]{a => Coproduct[Out](Rejected())}
-    val fPerformed = Flow[Accepted].map[Out](a => Coproduct[Out](Success("yay")))
+    val performer = builder.add(Performer( (a:Perform) => Coproduct[Out](Success("Whoop!")), Coproduct[Out](Accepted())))
 
-    val merge = builder.add(Merge[Out](2))
+    val fRejectPipe = Flow[Rejected].map[Out]{a => Coproduct[Out](Rejected())}
 
-    builder.addEdge(accept.rejected, fRejected, merge.in(0))
-    builder.addEdge(accept.accepted, fPerformed, merge.in(1))
+    val outputMerge = builder.add(Merge[Out](3))
 
-//    import FlowGraph.Implicits._
+    builder.addEdge(acceptor.rejected, fRejectPipe, outputMerge.in(0))
+    builder.addEdge(acceptor.accepted, performer.in)
+
+    builder.addEdge(performer.accepted, outputMerge.in(1))
+    builder.addEdge(performer.result, outputMerge.in(2))
+
+
+    import FlowGraph.Implicits._
 //    accept ~> fRejected ~> merge
 //    accept ~> fPerformed ~> merge
 
-    (accept.in, merge.out)
+    (acceptor.in, outputMerge.out)
   }
 
 

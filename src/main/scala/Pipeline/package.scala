@@ -1,5 +1,6 @@
 import akka.stream.scaladsl._
 import akka.stream._
+import shapeless.Coproduct
 
 /**
  * Created by rilakkuma on 21/05/2015.
@@ -41,5 +42,37 @@ package object Pipeline {
       override def initialCompletionHandling = eagerClose
     }
   }
+
+
+  class PerformerShape[I, A, P](_init: Init[I] = Name[I]("Perform"))
+    extends FanOutShape[I](_init) {
+    val accepted = newOutlet[A]("accepted")
+    val result = newOutlet[P]("result")
+    protected override def construct(i: Init[I]) = new PerformerShape(i)
+  }
+
+  object Performer{
+    def apply[I, A, R](f: I => R, a: A) = new Performer(f, a)
+  }
+
+  class Performer[I, A, R](f: I => R, a: A) extends FlexiRoute[I, PerformerShape[I, A, R]](
+    new PerformerShape, OperationAttributes.name("Perform")) {
+
+    import FlexiRoute._
+
+    override def createRouteLogic(p: PortT) = new RouteLogic[I] {
+      override def initialState =
+        State[Any](DemandFromAll(p.accepted, p.result)) {
+          (ctx, _, element) =>
+              ctx.emit(p.accepted)(a)
+              ctx.emit(p.result)(f(element))
+            SameState
+        }
+
+      override def initialCompletionHandling = eagerClose
+    }
+  }
+
+
 
 }
