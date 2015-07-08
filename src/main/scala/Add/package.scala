@@ -1,45 +1,36 @@
-import Pipeline.{Acceptor, Performer}
+import Pipeline.Acceptor
+import akka.stream.scaladsl.FlowGraph.Implicits._
 import akka.stream.scaladsl._
 import shapeless.{:+:, CNil, Coproduct}
-import FlowGraph.Implicits._
 
-/**
- * Created by rilakkuma on 21/05/2015.
- */
 package object Add {
 
   //inputs
   case class Add(data: String)
 
-  type In = Add :+: CNil
-
-  //outputs
   case class Accepted()
-
-  case class Success(message: String)
-
   case class Rejected()
-
-  // a coproduct of the valid outputs
-  type Out = Accepted :+: Success :+: Rejected :+: CNil
+  case class Success()
+  case class Failed()
+  type States = Accepted :+: Rejected :+: Success :+: Failed :+: CNil
 
   // internal flow events
   case class Perform()
 
   def addFlow() = Flow() { implicit builder =>
 
-    val acceptor = builder.add(Acceptor((a: Add) => if (a.data != "Junk") Left(Perform()) else Right(Rejected())))
+    val accept = (a: Add) => if (a.data != "Junk") Left(Coproduct[States](Accepted())) else Right(Coproduct[States](Rejected()))
+    val acceptor = builder.add(Acceptor(accept))
 
-    val performer = builder.add(Performer((a: Perform) => Coproduct[Out](Success("Whoop!")), Coproduct[Out](Accepted())))
+    val perform = Flow[States].map[States]{ a => Coproduct[States](Success())}
 
-    val rejectPipe = Flow[Rejected].map[Out] { a => Coproduct[Out](Rejected()) }
+    val dup = builder.add(Broadcast[States](2))
 
-    val outputMerge = builder.add(Merge[Out](3))
+    val outputMerge = builder.add(Merge[States](3))
 
-    acceptor.rejected ~> rejectPipe ~> outputMerge
-    acceptor.accepted ~> performer.in
-                         performer.accepted ~> outputMerge
-                         performer.result ~> outputMerge
+    acceptor.rejected ~> outputMerge
+    acceptor.accepted ~> dup ~> outputMerge
+                         dup ~> perform ~> outputMerge
 
 
     (acceptor.in, outputMerge.out)

@@ -8,8 +8,6 @@ package object Get {
   //inputs
   case class Get()
 
-  type In = Get :+: CNil
-
   //outputs
   case class Accept()
   case class Success(message:String)
